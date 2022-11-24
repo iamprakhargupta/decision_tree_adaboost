@@ -1,0 +1,287 @@
+"""
+CSCI-630: Foundation of AI
+main.py
+Autor: Prakhar Gupta
+Username: pg9349
+
+This code of training and predicting type of languagege
+
+"""
+
+
+import numpy as np
+import pandas as pd
+from DecisionTree import DecisionTree
+import pickle
+from Adaboost import AdaBoost
+# # sed = np.loadtxt('dtree.dat', unpack = True)
+# print(sed)
+from helper import accuracy
+import os
+
+import sys
+cutoff_dict = {
+    "english": 2,
+    "dutch": 2,
+    "avgwordlength": 5.1,
+    "largestword": 11,
+    "VCratio": 0.4
+
+}
+def read_Data(f):
+    file = []
+    with open(f, encoding="utf-8") as datFile:
+        for i in datFile:
+
+            i = i.split("\n")
+            for j in i:
+                s = j.split(" ")
+                if len(s) != 15:
+                    continue
+                file.append(j)
+
+    # print(file)
+    sentences = []
+
+    for i in file:
+        i = i.split("|")
+        sentences.append(i)
+
+    df = pd.DataFrame(sentences, columns=["col1", "col2"])
+    # d = {'en': 1, 'nl': 0}
+    # df["col1"]=df["col1"].map(d)
+    # print(df)
+    return df
+
+
+
+
+
+def read_pred_data(f):
+    file = []
+    with open(f, encoding="utf-8") as datFile:
+        for i in datFile:
+            # if len(i)!=15:
+            #     continue
+            i = i.split("\n")
+            # print(i)
+            for j in i:
+                j=j.strip()
+                s = j.split(" ")
+                if len(s) != 15:
+                    continue
+                file.append(j)
+
+
+    # print(file)
+    sentences = file
+
+
+
+    df = pd.DataFrame(sentences, columns=["col2"])
+    df["col1"]=""
+    # d = {'en': 1, 'nl': 0}
+    # df["col1"]=df["col1"].map(d)
+    # print(df)
+    return df
+
+
+def vcratio(s):
+    vowels = {"a", "e", "i", "o", "o"}
+    v = 0
+    c = 0
+    for i in s:
+        if i in vowels:
+            v += 1
+        else:
+            c += 1
+    ratio = v / c
+    return ratio
+
+
+def make_flags(df, cutoff_dict):
+    for k, v in cutoff_dict.items():
+        df[str(k) + "lessthancutoff"] = df[k].squeeze() < v
+
+    return df
+
+
+def transform_Data(df):
+    enwords = {'i', 'me', 'my', 'myself', 'we', 'our', 'ours',
+               'ourselves', 'you', "you're", "you've", "you'll", "you'd",
+               'your', 'yours',
+               'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she',
+               "she's", 'her',
+               'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them',
+               'their', 'theirs',
+               'themselves', 'what', 'which', 'who', 'whom', 'this', 'that',
+               "that'll", 'these', 'those',
+               'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have',
+               'has', 'had', 'having', 'do',
+               'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if',
+               'or'}
+
+    nlwords = {'de', 'en', 'van', 'ik', 'te', 'dat', 'die', 'in', 'een', 'hij',
+               'het', 'niet', 'zijn', 'is', 'was', 'op', 'aan', 'met', 'als',
+               'voor',
+               'had', 'er', 'maar', 'om', 'hem', 'dan', 'zou', 'wat', 'mijn',
+               'men',
+               'dit', 'zo', 'door', 'ze', 'zich', 'bij', 'ook', 'tot', 'je',
+               'mij',
+               'uit', 'der', 'daar', 'haar', 'naar', 'heb', 'hoe', 'heeft',
+               'hebben', 'deze',
+               'u', 'nog', 'zal', 'me', 'zij', 'nu', 'ge', 'geen'}
+
+    onlyen = enwords.difference(nlwords)
+    onlynl = nlwords.difference(enwords)
+
+    df["english"] = 0
+    df["dutch"] = 0
+    df["avgwordlength"] = 0
+    df["largestword"] = 0
+    df["VCratio"] = 0
+
+    for index, row in df.iterrows():
+        s = row["col2"]
+        words = s.split(" ")
+        wordlen = 0
+        max = 0
+        for i in words:
+            i = i.lower()
+            if i in onlyen:
+                df.iloc[index, 2] += 1
+            if i in onlynl:
+                df.iloc[index, 3] += 1
+            wordlen += len(i)
+            if len(i) > max:
+                max = len(i)
+        df.iloc[index, 5] = max
+        df.iloc[index, 4] = wordlen / 15
+        df.iloc[index, 6] = vcratio(s)
+
+    return df
+
+
+def train(f,out,type):
+    df = read_Data(f)
+    df = transform_Data(df)
+    ## Ever thing is less then
+    """
+        dutch <2
+        english <2
+        avg=5.1
+        largest word 11
+        VC ratio <0.4
+
+    """
+
+
+    # cutoff_dict={
+    #     "english":3,
+    # "dutch":2,
+    # "avgwordlength":5.1,
+    #     "largestword":12,
+    #     "VCratio":0.35
+    #
+    # }
+
+    df = make_flags(df, cutoff_dict)
+    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    d = {True: 1, False: 0}
+    # print(df.columns)
+    df = df[['col1', 'englishlessthancutoff', 'dutchlessthancutoff',
+             'avgwordlengthlessthancutoff', 'largestwordlessthancutoff',
+             'VCratiolessthancutoff']]
+
+    for i in df.columns[1:]:
+        df[i] = df[i].map(d)
+
+    """
+    Code used for splitting data into train and test 
+    """
+    size=len(df)
+    df1 = df.head(int(size*0.80))
+    df2 = df.tail(int(size*0.20))
+
+
+    X = df1[['englishlessthancutoff', 'dutchlessthancutoff',
+             'avgwordlengthlessthancutoff', 'largestwordlessthancutoff',
+             'VCratiolessthancutoff']]
+    y = df1['col1']
+    X = X.to_numpy()
+    y = y.to_numpy()
+    X2 = df2[['englishlessthancutoff', 'dutchlessthancutoff',
+              'avgwordlengthlessthancutoff', 'largestwordlessthancutoff',
+              'VCratiolessthancutoff']]
+    y2 = df2['col1']
+    X2 = X2.to_numpy()
+    y2 = y2.to_numpy()
+    if type=="dt":
+        level=2
+        model = DecisionTree(level=level)
+        root = model.train(X, y)
+        # dtree.travese_tree()
+
+        # print(X2[:2])
+        # print(y2[:2])
+        pred = model.pred(X2)
+        # print(pred)
+        # print(y2)
+        print(f"Decision Tree of level {level} had accuracy on test of size {len(pred)}")
+        print(accuracy(pred, y2))
+    elif type == "ada":
+        nboost=1
+        model = AdaBoost(nboost=nboost)
+        model.train(X, y)
+        f = model.pred(X2)
+        print(f"Adaboost of rounds {nboost} have accuracy on test of size {len(f)}")
+        print(accuracy(f, y2))
+    else:
+        print ("ERROR")
+        return 0
+    file = open(out, 'wb')
+    pickle.dump(model, file)
+    file.close()
+
+
+
+
+def test(f,model):
+    df=read_pred_data(f)
+    df = transform_Data(df)
+    df = make_flags(df, cutoff_dict)
+    X = df[['englishlessthancutoff', 'dutchlessthancutoff',
+             'avgwordlengthlessthancutoff', 'largestwordlessthancutoff',
+             'VCratiolessthancutoff']]
+    X = X.to_numpy()
+    filehandler = open(model, 'rb')
+    hypo = pickle.load(filehandler)
+    filehandler.close()
+    # print(type(hypo))
+    pred=hypo.pred(X)
+    for i in pred:
+        print(i)
+    # for i,rows in df.iterrows():
+    #     print(rows)
+
+if __name__=="__main__":
+    """
+    Accuracy-
+    1 level dttree -0.9333
+    
+    2 level dtree -0.9833333333333333
+    5 round boosting adaboost - 0.9666666666666667
+
+    """
+    stage = sys.argv[1]
+    if stage=="train":
+        f=sys.argv[2]
+        out=sys.argv[3]
+        type=sys.argv[4]
+        train(f,out,type)
+    if stage=="predict":
+        f=sys.argv[2]
+        hypo=sys.argv[3]
+        test(f,hypo)
+
